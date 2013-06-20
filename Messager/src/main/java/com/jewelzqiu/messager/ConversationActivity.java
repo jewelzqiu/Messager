@@ -8,13 +8,11 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
-import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.CursorAdapter;
 import android.widget.EditText;
 import android.widget.ListView;
-import android.widget.SimpleCursorAdapter;
+import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import org.jivesoftware.smack.Chat;
@@ -23,12 +21,9 @@ import org.jivesoftware.smack.MessageListener;
 import org.jivesoftware.smack.RosterEntry;
 import org.jivesoftware.smack.XMPPException;
 import org.jivesoftware.smack.packet.Message;
-import org.jivesoftware.smack.util.StringEncoder;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -47,11 +42,9 @@ public class ConversationActivity extends Activity {
 
     DataBaseHelper DBHelper;
     ChatAdapter mChatAdapter;
-//    ConversationAdapter mAdapter;
 
     String username;
     String TableName;
-    List<Map<String, Object>> conversation_list;
 
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -76,10 +69,6 @@ public class ConversationActivity extends Activity {
             }
         });
 
-//        conversation_list = new ArrayList<Map<String, Object>>();
-//        mAdapter = new ConversationAdapter(this, R.id.text, conversation_list);
-//        conversationListView.setAdapter(mAdapter);
-
         int key = getIntent().getIntExtra("key", -1);
         if (key == -1) {
             finish();
@@ -94,7 +83,7 @@ public class ConversationActivity extends Activity {
         mChat = mConnection.getChatManager().createChat(username, new MessageListener() {
             @Override
             public void processMessage(Chat chat, Message message) {
-                updateConsersation(message.getBody(), false, System.currentTimeMillis());
+                runOnUiThread(new updateRunnable(message.getBody(), System.currentTimeMillis()));
             }
         });
 
@@ -121,7 +110,7 @@ public class ConversationActivity extends Activity {
         return sb.toString();
     }
 
-    private void updateConsersation(String message, boolean mine, long time) {
+    public void updateConsersation(String message, boolean mine, long time) {
         SQLiteDatabase db = DBHelper.getWritableDatabase();
         int isMine = mine ? 1 : 0;
         db.execSQL("INSERT INTO " + TableName + "(" +
@@ -129,19 +118,8 @@ public class ConversationActivity extends Activity {
                 DataBaseHelper.CHAT_IS_MINE + ", " +
                 DataBaseHelper.CHAT_TIME + ")" +
                 " VALUES ('" + message + "', " + isMine + ", " + time + ")");
-        mChatAdapter.changeCursor(db.rawQuery("SELECT * FROM " + TableName, null));
-        mChatAdapter.notifyDataSetChanged();
-        conversationListView.requestFocus();
-//
-//
-//        System.out.println(mine + "\t" + message);
-//        Map<String, Object> conversationItem = new HashMap<String, Object>();
-//        conversationItem.put("msg", message);
-//        conversationItem.put("mine", mine);
-//        conversationItem.put("id", new Long(conversation_list.size()));
-//        conversation_list.add(conversationItem);
-//        mAdapter.refresh(conversation_list);
-//        conversationListView.refreshDrawableState();
+        mChatAdapter.changeCursor(db.rawQuery("SELECT * FROM " + TableName/* + " ORDER BY " +
+                DataBaseHelper.CHAT_ID + " DESC LIMIT 10"*/, null));
     }
 
     private void DBOperations () {
@@ -156,13 +134,16 @@ public class ConversationActivity extends Activity {
                 DataBaseHelper.CHAT_CONTENT + " TEXT, " +
                 DataBaseHelper.CHAT_IS_MINE + " INTEGER, " +
                 DataBaseHelper.CHAT_TIME + " LONG)");
-        }
-//        db.execSQL("IF object_id('" + username + "') IS NULL\n" +
-//                "CREATE TABLE " + username + "(" +
-//                DataBaseHelper.CHAT_CONTENT + " TEXT, " +
-//                DataBaseHelper.CHAT_IS_MINE + " INTEGER, " +
-//                DataBaseHelper.CHAT_TIME + " LONG)");
-        cursor = db.rawQuery("SELECT * FROM " + TableName, null);
+        } /*else {
+            db.execSQL("DROP TABLE " + TableName);
+            db.execSQL("CREATE TABLE " + TableName + "(" +
+                    DataBaseHelper.CHAT_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    DataBaseHelper.CHAT_CONTENT + " TEXT, " +
+                    DataBaseHelper.CHAT_IS_MINE + " INTEGER, " +
+                    DataBaseHelper.CHAT_TIME + " LONG)");
+        }*/
+        cursor = db.rawQuery("SELECT * FROM " + TableName/* + " ORDER BY " +
+                DataBaseHelper.CHAT_ID + " DESC LIMIT 10"*/, null);
         mChatAdapter = new ChatAdapter(this, cursor, false);
         conversationListView.setAdapter(mChatAdapter);
     }
@@ -180,81 +161,62 @@ public class ConversationActivity extends Activity {
 
         @Override
         public View newView(Context context, Cursor cursor, ViewGroup viewGroup) {
-            View view;
             boolean isMine = cursor.getInt(cursor.getColumnIndex(DataBaseHelper.CHAT_IS_MINE)) == 1;
-            String content = cursor.getString(cursor.getColumnIndex(DataBaseHelper.CHAT_CONTENT));
+            View view;
             int resourceID;
             if (isMine) {
                 resourceID = R.layout.listitem_me;
             } else {
-                resourceID = R.layout.listitem_friends;
+                resourceID = R.layout.listitem_friend;
             }
             view = mInflater.inflate(resourceID, viewGroup, false);
-            TextView textView = (TextView) view.findViewById(R.id.text);
-            textView.setText(content);
+            ViewHolder viewHolder = new ViewHolder();
+            viewHolder.mTextView = (TextView) view.findViewById(R.id.text);
+            view.setTag(viewHolder);
             return view;
         }
 
         @Override
         public void bindView(View view, Context context, Cursor cursor) {
+            String content = cursor.getString(cursor.getColumnIndex(DataBaseHelper.CHAT_CONTENT));
+            ViewHolder viewHolder = (ViewHolder) view.getTag();
+            TextView textView = viewHolder.mTextView;
+            textView.setText(content);
+        }
 
+        @Override
+        public int getViewTypeCount() {
+            return 2;
+        }
+
+        @Override
+        public int getItemViewType(int position) {
+            Cursor cursor = (Cursor) getItem(position);
+            return getItemViewType(cursor);
+        }
+
+        private int getItemViewType(Cursor cursor) {
+            return cursor.getInt(cursor.getColumnIndex(DataBaseHelper.CHAT_IS_MINE));
         }
     }
 
-//    class ConversationAdapter extends ArrayAdapter {
-//        private Context mContext;
-//        private LayoutInflater mInflater;
-//        private List<Map<String, Object>> mList;
-//
-//        public ConversationAdapter(Context context, int textViewResourceId, List<Map<String, Object>> list) {
-//            super(context, textViewResourceId, list);
-//            this.mContext = context;
-//            this.mInflater = LayoutInflater.from(mContext);
-//            this.mList = list;
-//        }
-//
-//        @Override
-//        public int getCount() {
-//            return mList.size();
-//        }
-//
-//        @Override
-//        public Object getItem(int i) {
-//            return mList.get(i);
-//        }
-//
-//        @Override
-//        public long getItemId(int i) {
-//            return (Long) mList.get(i).get("id");
-//        }
-//
-//        @Override
-//        public View getView(int position, View view, ViewGroup viewGroup) {
-//
-//            View convertView = view;
-//
-//            if (convertView == null) {
-//                int resourceID;
-//                if ((Boolean) mList.get(position).get("mine")) {
-//                    resourceID = R.layout.listitem_me;
-//                } else {
-//                    resourceID = R.layout.listitem_friends;
-//                }
-//                convertView = mInflater.inflate(resourceID, null);
-//                TextView textView = (TextView) convertView.findViewById(R.id.text);
-//                textView.setText(mList.get(position).get("msg").toString());
-//            }
-//
-//            view = convertView;
-//
-//            return view;
-//        }
-//
-//        public void refresh(List<Map<String, Object>> list) {
-//            mList = list;
-//            notifyDataSetChanged();
-//        }
-//
-//    }
+    class ViewHolder {
+        TextView mTextView;
+    }
 
+    class updateRunnable implements Runnable {
+
+        private String message;
+        private long time;
+
+        public updateRunnable(String message, long time) {
+            this.message = message;
+            this.time = time;
+        }
+
+        @Override
+        public void run() {
+            updateConsersation(message, false, time);
+        }
+    }
 }

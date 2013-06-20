@@ -28,6 +28,8 @@
             android:padding="10dip"
             android:fadeScrollbars="true"
             android:layout_above="@+id/button_send"
-            android:layout_alignParentTop="true"/>
+            android:layout_alignParentTop="true"
+            android:stackFromBottom="true"
+            android:transcriptMode="alwaysScroll"/>
 
 </RelativeLayout>
