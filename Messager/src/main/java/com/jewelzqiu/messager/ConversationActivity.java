@@ -42,9 +42,11 @@ public class ConversationActivity extends Activity {
 
     DataBaseHelper DBHelper;
     ChatAdapter mChatAdapter;
+    InChatMessageListener mMessageListener;
 
     String username;
     String TableName;
+    static String querySQL;
 
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -60,7 +62,7 @@ public class ConversationActivity extends Activity {
                     String message = composeEditText.getText().toString();
                     try {
                         mChat.sendMessage(message);
-                        updateConsersation(message, true, System.currentTimeMillis());
+                        updateConversation(message, true, System.currentTimeMillis());
                         composeEditText.setText("");
                     } catch (XMPPException e) {
                         e.printStackTrace();
@@ -78,16 +80,28 @@ public class ConversationActivity extends Activity {
         mEntry = messagerApp.getEntries()[key];
         username = mEntry.getUser();
         TableName = getTableName();
+        querySQL = "SELECT * FROM (" +
+                        "SELECT * FROM " + TableName +
+                            " ORDER BY " + DataBaseHelper.CHAT_ID + " DESC LIMIT 100)" +
+                    " ORDER BY " + DataBaseHelper.CHAT_ID + " ASC";
         setTitle(username);
 
-        mChat = mConnection.getChatManager().createChat(username, new MessageListener() {
-            @Override
-            public void processMessage(Chat chat, Message message) {
-                runOnUiThread(new updateRunnable(message.getBody(), System.currentTimeMillis()));
-            }
-        });
-
         DBOperations();
+
+        mMessageListener = new InChatMessageListener();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        mChat = mConnection.getChatManager().createChat(username, mMessageListener);
+        updateConversation();
+    }
+
+    @Override
+    protected void onPause() {
+        mChat.removeMessageListener(mMessageListener);
+        super.onPause();
     }
 
     private String getTableName() {
@@ -110,7 +124,12 @@ public class ConversationActivity extends Activity {
         return sb.toString();
     }
 
-    public void updateConsersation(String message, boolean mine, long time) {
+    public void updateConversation() {
+        SQLiteDatabase db = DBHelper.getWritableDatabase();
+        mChatAdapter.changeCursor(db.rawQuery(querySQL, null));
+    }
+
+    public void updateConversation(String message, boolean mine, long time) {
         SQLiteDatabase db = DBHelper.getWritableDatabase();
         int isMine = mine ? 1 : 0;
         db.execSQL("INSERT INTO " + TableName + "(" +
@@ -118,8 +137,15 @@ public class ConversationActivity extends Activity {
                 DataBaseHelper.CHAT_IS_MINE + ", " +
                 DataBaseHelper.CHAT_TIME + ")" +
                 " VALUES ('" + message + "', " + isMine + ", " + time + ")");
-        mChatAdapter.changeCursor(db.rawQuery("SELECT * FROM " + TableName/* + " ORDER BY " +
-                DataBaseHelper.CHAT_ID + " DESC LIMIT 10"*/, null));
+        mChatAdapter.changeCursor(db.rawQuery(querySQL, null));
+    }
+
+    class InChatMessageListener implements MessageListener {
+
+        @Override
+        public void processMessage(Chat chat, Message message) {
+            runOnUiThread(new updateRunnable(message.getBody(), System.currentTimeMillis()));
+        }
     }
 
     private void DBOperations () {
@@ -142,8 +168,7 @@ public class ConversationActivity extends Activity {
                     DataBaseHelper.CHAT_IS_MINE + " INTEGER, " +
                     DataBaseHelper.CHAT_TIME + " LONG)");
         }*/
-        cursor = db.rawQuery("SELECT * FROM " + TableName/* + " ORDER BY " +
-                DataBaseHelper.CHAT_ID + " DESC LIMIT 10"*/, null);
+        cursor = db.rawQuery(querySQL, null);
         mChatAdapter = new ChatAdapter(this, cursor, false);
         conversationListView.setAdapter(mChatAdapter);
     }
@@ -216,7 +241,7 @@ public class ConversationActivity extends Activity {
 
         @Override
         public void run() {
-            updateConsersation(message, false, time);
+            updateConversation(message, false, time);
         }
     }
 }

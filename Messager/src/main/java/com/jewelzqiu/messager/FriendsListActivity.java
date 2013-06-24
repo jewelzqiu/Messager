@@ -9,14 +9,19 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 
+import org.jivesoftware.smack.Chat;
+import org.jivesoftware.smack.ChatManagerListener;
 import org.jivesoftware.smack.Connection;
+import org.jivesoftware.smack.MessageListener;
 import org.jivesoftware.smack.Roster;
 import org.jivesoftware.smack.RosterEntry;
 import org.jivesoftware.smack.RosterListener;
 import org.jivesoftware.smack.XMPPException;
+import org.jivesoftware.smack.packet.Message;
 import org.jivesoftware.smack.packet.Presence;
 
 import java.util.Collection;
+import java.util.StringTokenizer;
 
 /**
  * Created by jewelzqiu on 6/13/13.
@@ -36,31 +41,35 @@ public class FriendsListActivity extends PreferenceActivity {
 
         mMessagerApp = (MessagerApp) getApplication();
         mConnection = mMessagerApp.getConnection();
+        mConnection.getChatManager().addChatListener(new ChatManagerListener() {
+            @Override
+            public void chatCreated(Chat chat, boolean createdLocally) {
+                if (!createdLocally) {
+                    chat.addMessageListener(new NewMessageListener());
+                }
+            }
+        });
 
         updateFriendsList();
 
         mConnection.getRoster().addRosterListener(new RosterListener() {
             @Override
             public void entriesAdded(Collection<String> strings) {
-                System.out.println("entries Added");
                 updateFriendsList();
             }
 
             @Override
             public void entriesUpdated(Collection<String> strings) {
-                System.out.println("entries Updated");
                 updateFriendsList();
             }
 
             @Override
             public void entriesDeleted(Collection<String> strings) {
-                System.out.println("entries Deleted");
                 updateFriendsList();
             }
 
             @Override
             public void presenceChanged(Presence presence) {
-                System.out.println("presence Changed");
             }
         });
 
@@ -122,6 +131,15 @@ public class FriendsListActivity extends PreferenceActivity {
             mConnection.getRoster().removeEntry(mEntries[index]);
         } catch (XMPPException e) {
             e.printStackTrace();
+        }
+    }
+
+    class NewMessageListener implements MessageListener {
+
+        @Override
+        public void processMessage(Chat chat, Message message) {
+            StringTokenizer st = new StringTokenizer(chat.getParticipant(), "/");
+            System.out.println(st.nextToken() + ": " + message.getBody());
         }
     }
 
