@@ -3,8 +3,8 @@ package com.jewelzqiu.messager;
 import android.app.Activity;
 import android.content.Context;
 import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
 import android.os.Bundle;
+import android.os.Handler;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -12,20 +12,12 @@ import android.widget.Button;
 import android.widget.CursorAdapter;
 import android.widget.EditText;
 import android.widget.ListView;
-import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import org.jivesoftware.smack.Chat;
 import org.jivesoftware.smack.Connection;
-import org.jivesoftware.smack.MessageListener;
 import org.jivesoftware.smack.RosterEntry;
 import org.jivesoftware.smack.XMPPException;
-import org.jivesoftware.smack.packet.Message;
-
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Created by jewelzqiu on 6/17/13.
@@ -40,13 +32,13 @@ public class ConversationActivity extends Activity {
     EditText composeEditText;
     ListView conversationListView;
 
+    Handler mHandler;
+
+    MessagerApp mMessagerApp;
     DataBaseHelper DBHelper;
     ChatAdapter mChatAdapter;
-    InChatMessageListener mMessageListener;
 
     String username;
-    String TableName;
-    static String querySQL;
 
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -61,8 +53,10 @@ public class ConversationActivity extends Activity {
                 if (mChat != null) {
                     String message = composeEditText.getText().toString();
                     try {
+                        System.out.println("local: me: " + message);
                         mChat.sendMessage(message);
-                        updateConversation(message, true, System.currentTimeMillis());
+                        mChatAdapter.changeCursor(DBHelper.insertMessage(
+                                username, message, true, System.currentTimeMillis()));
                         composeEditText.setText("");
                     } catch (XMPPException e) {
                         e.printStackTrace();
@@ -75,102 +69,42 @@ public class ConversationActivity extends Activity {
         if (key == -1) {
             finish();
         }
-        MessagerApp messagerApp = (MessagerApp) getApplication();
-        mConnection = messagerApp.getConnection();
-        mEntry = messagerApp.getEntries()[key];
+        mMessagerApp = (MessagerApp) getApplication();
+        mConnection = mMessagerApp.getConnection();
+        mEntry = mMessagerApp.getEntries()[key];
         username = mEntry.getUser();
-        TableName = getTableName();
-        querySQL = "SELECT * FROM (" +
-                        "SELECT * FROM " + TableName +
-                            " ORDER BY " + DataBaseHelper.CHAT_ID + " DESC LIMIT 100)" +
-                    " ORDER BY " + DataBaseHelper.CHAT_ID + " ASC";
         setTitle(username);
 
-        DBOperations();
-
-        mMessageListener = new InChatMessageListener();
+        DBHelper = new DataBaseHelper(this, DataBaseHelper.DB_NAME, null, 1);
+        mHandler = new UIHandler();
+        mMessagerApp.setConversationHandler(mHandler);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        mChat = mConnection.getChatManager().createChat(username, mMessageListener);
-        updateConversation();
+        mChat = mConnection.getChatManager().createChat(username, null);
+        if (mChatAdapter == null) {
+            mChatAdapter = new ChatAdapter(this, DBHelper.queryMessage(username), false);
+            conversationListView.setAdapter(mChatAdapter);
+        } else {
+            mChatAdapter.changeCursor(DBHelper.queryMessage(username));
+        }
+        sendClearMessage();
     }
 
     @Override
     protected void onPause() {
-        mChat.removeMessageListener(mMessageListener);
+        sendClearMessage();
         super.onPause();
     }
 
-    private String getTableName() {
-        MessageDigest md = null;
-        try {
-            md = MessageDigest.getInstance("MD5");
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-        }
-        md.update(username.getBytes());
-        byte[] bytes = md.digest();
-        StringBuffer sb = new StringBuffer();
-        for(int i = 0; i < bytes.length; i++){
-            int v = bytes[i] & 0xff;
-            if(v < 16){
-                sb.append(0);
-            }
-            sb.append(Integer.toHexString(v));
-        }
-        return sb.toString();
-    }
-
-    public void updateConversation() {
-        SQLiteDatabase db = DBHelper.getWritableDatabase();
-        mChatAdapter.changeCursor(db.rawQuery(querySQL, null));
-    }
-
-    public void updateConversation(String message, boolean mine, long time) {
-        SQLiteDatabase db = DBHelper.getWritableDatabase();
-        int isMine = mine ? 1 : 0;
-        db.execSQL("INSERT INTO " + TableName + "(" +
-                DataBaseHelper.CHAT_CONTENT + ", " +
-                DataBaseHelper.CHAT_IS_MINE + ", " +
-                DataBaseHelper.CHAT_TIME + ")" +
-                " VALUES ('" + message + "', " + isMine + ", " + time + ")");
-        mChatAdapter.changeCursor(db.rawQuery(querySQL, null));
-    }
-
-    class InChatMessageListener implements MessageListener {
-
-        @Override
-        public void processMessage(Chat chat, Message message) {
-            runOnUiThread(new updateRunnable(message.getBody(), System.currentTimeMillis()));
-        }
-    }
-
-    private void DBOperations () {
-        DBHelper = new DataBaseHelper(getApplicationContext(), DataBaseHelper.DB_NAME, null, 1);
-        SQLiteDatabase db = DBHelper.getWritableDatabase();
-        String sql = "SELECT COUNT(*) AS c FROM Sqlite_master WHERE TYPE = 'table' AND NAME = '" +
-                TableName.trim() + "'";
-        Cursor cursor = db.rawQuery(sql, null);
-        if (cursor == null || !cursor.moveToNext() || cursor.getInt(0) <= 0) {
-            db.execSQL("CREATE TABLE " + TableName + "(" +
-                DataBaseHelper.CHAT_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                DataBaseHelper.CHAT_CONTENT + " TEXT, " +
-                DataBaseHelper.CHAT_IS_MINE + " INTEGER, " +
-                DataBaseHelper.CHAT_TIME + " LONG)");
-        } /*else {
-            db.execSQL("DROP TABLE " + TableName);
-            db.execSQL("CREATE TABLE " + TableName + "(" +
-                    DataBaseHelper.CHAT_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                    DataBaseHelper.CHAT_CONTENT + " TEXT, " +
-                    DataBaseHelper.CHAT_IS_MINE + " INTEGER, " +
-                    DataBaseHelper.CHAT_TIME + " LONG)");
-        }*/
-        cursor = db.rawQuery(querySQL, null);
-        mChatAdapter = new ChatAdapter(this, cursor, false);
-        conversationListView.setAdapter(mChatAdapter);
+    private void sendClearMessage() {
+        Handler handler = mMessagerApp.getFriendsListHandler();
+        android.os.Message msg = handler.obtainMessage();
+        msg.what = MessagerApp.CLEAR_NEW_MESSAGES;
+        msg.arg1 = mMessagerApp.getEntryIndex().get(username);
+        handler.sendMessage(msg);
     }
 
     class ChatAdapter extends CursorAdapter {
@@ -229,19 +163,17 @@ public class ConversationActivity extends Activity {
         TextView mTextView;
     }
 
-    class updateRunnable implements Runnable {
-
-        private String message;
-        private long time;
-
-        public updateRunnable(String message, long time) {
-            this.message = message;
-            this.time = time;
-        }
-
+    class UIHandler extends Handler {
         @Override
-        public void run() {
-            updateConversation(message, false, time);
+        public void handleMessage(android.os.Message msg) {
+            if (msg.what == MessagerApp.REFRESH_UI) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        mChatAdapter.changeCursor(DBHelper.queryMessage(username));
+                    }
+                });
+            }
         }
     }
 }

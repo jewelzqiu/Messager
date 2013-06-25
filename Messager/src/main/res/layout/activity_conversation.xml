@@ -12,15 +12,6 @@
             android:layout_alignParentBottom="true"
             android:layout_alignParentRight="true"/>
 
-    <EditText
-            android:id="@+id/text_compose"
-            android:layout_height="wrap_content"
-            android:layout_width="wrap_content"
-            android:layout_alignTop="@+id/button_send"
-            android:layout_alignParentLeft="true"
-            android:layout_alignParentBottom="true"
-            android:layout_toLeftOf="@+id/button_send"/>
-
     <ListView
             android:id="@+id/list_conversation"
             android:layout_width="match_parent"
@@ -31,5 +22,14 @@
             android:layout_alignParentTop="true"
             android:stackFromBottom="true"
             android:transcriptMode="alwaysScroll"/>
+
+    <EditText
+            android:id="@+id/text_compose"
+            android:layout_height="wrap_content"
+            android:layout_width="wrap_content"
+            android:layout_alignTop="@+id/button_send"
+            android:layout_alignParentLeft="true"
+            android:layout_alignParentBottom="true"
+            android:layout_toLeftOf="@+id/button_send"/>
 
 </RelativeLayout>
